@@ -1,0 +1,13 @@
+return {
+  _all = {
+    pattern = '_spec',
+    lua = 'lua',
+    lpath = 'lua/?.lua;lua/?/init.lua',
+  },
+  default = {
+    verbose = true,
+  },
+  tests = {
+    verbose = true,
+  },
+}

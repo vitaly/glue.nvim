@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 local inspect = require('inspect')
 
 -- Mock vim APIs before requiring glue
@@ -115,6 +116,8 @@ describe('ask/answer', function()
 
     assert.is_true(called)
     assert.equals(42, result.answer)
+    assert.is_not_nil(received_args)
+    ---@diagnostic disable-next-line: need-check-nil
     assert.equals('value', received_args.param)
   end)
 

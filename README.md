@@ -123,7 +123,7 @@ glue.listen("*tree*", handler)  -- matches "neo-tree.toggle", "nvim-tree.open", 
 glue.listen("*.toggle", handler)  -- matches "neo-tree.toggle", "file-browser.toggle", etc.
 ```
 
-You can also filter by participant name:
+You can also filter by context name:
 
 ```lua
 -- Only ask conform.nvim, not other formatters
@@ -142,7 +142,7 @@ Want to see what's connected?
 ### From Vim
 
 ```vim
-:Glue list participants           " all registered plugins
+:Glue list contexts           " all registered plugins
 :Glue list channels               " all registered channels
 :Glue list answerers formatting.* " who answers formatting questions
 :Glue list listeners file-browser.*  " who listens for file browser events
@@ -155,8 +155,8 @@ Want to see what's connected?
 ```lua
 local glue = require("glue")
 
--- List all participants matching a pattern
-local formatters = glue.list_participants("*format*")
+-- List all contexts matching a pattern
+local formatters = glue.list_contexts("*format*")
 -- Returns: { ["conform.nvim"] = { version = "v1.0", ... }, ... }
 
 -- List answerers for a channel
@@ -386,7 +386,7 @@ Examples:
 Can't figure out why things aren't connecting?
 
 ```vim
-:Glue list participants
+:Glue list contexts
 :Glue inspect your.channel
 ```
 

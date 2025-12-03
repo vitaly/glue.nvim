@@ -15,8 +15,8 @@ vim.api.nvim_create_user_command('Glue', function(opts)
       print(vim.inspect(glue.list_listeners(filter1, filter2)))
     elseif what == 'channels' then
       print(vim.inspect(glue.list_channels(filter1)))
-    elseif what == 'participants' then
-      print(vim.inspect(glue.list_participants(filter1)))
+    elseif what == 'contexts' then
+      print(vim.inspect(glue.list_contexts(filter1)))
     else
       vim.notify('[glue] Unknown list target: ' .. what, vim.log.levels.ERROR)
     end
@@ -42,7 +42,7 @@ end, {
       return { 'list', 'inspect' }
     elseif #args == 2 or (#args == 3 and not cmdline:match('%s$')) then
       if args[2] == 'list' then
-        return { 'channels', 'participants', 'answerers', 'listeners' }
+        return { 'channels', 'contexts', 'answerers', 'listeners' }
       end
     end
     return {}

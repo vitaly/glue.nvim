@@ -2,17 +2,17 @@ local M = {}
 
 ---@class GlueContext
 ---@field version string|nil Plugin version
----@field answers string[]|nil Channels this participant answers
----@field emits string[]|nil Channels this participant emits to
----@field listens string[]|nil Channels this participant listens to
+---@field answers string[]|nil Channels this context answers
+---@field emits string[]|nil Channels this context emits to
+---@field listens string[]|nil Channels this context listens to
 
 ---@alias Answerer fun(args: table): any
 ---@alias Listener fun(channel: string, data: any, meta: table): nil
 
 ---@class GlueRegistry
 ---@field contexts table<string, GlueContext> Registered contexts by name
----@field answerers table<string, table<string, Answerer>> Answerers by channel and participant
----@field listeners table<string, table<string, Listener>> Listeners by pattern and participant
+---@field answerers table<string, table<string, Answerer>> Answerers by channel and context
+---@field listeners table<string, table<string, Listener>> Listeners by pattern and context
 
 ---@type GlueRegistry
 local registry = {
@@ -42,7 +42,7 @@ end
 ---@field emit fun(channel: string, data: any): nil Emit an event
 ---@field listen fun(pattern: string, handler: Listener): nil Register a listener
 
----Register a participant and return namespaced glue instance
+---Register a context and return namespaced glue instance
 ---@param name string Unique name for this context
 ---@param context GlueContext|nil Registration context
 ---@return GlueInstance glue Namespaced glue instance for this context
@@ -182,14 +182,14 @@ function M.list_listeners(pattern_filter, name_pattern)
   return results
 end
 
----List participants matching name pattern
+---List contexts matching name pattern
 ---@param name_pattern string|nil Name pattern to filter by (default: "*")
 ---@return table<string, GlueContext> contexts Map of context names to their info
 ---@usage
 ---```lua
----local contexts = glue.list_participants("*format*")
+---local contexts = glue.list_contexts("*format*")
 ---```
-function M.list_participants(name_pattern)
+function M.list_contexts(name_pattern)
   name_pattern = name_pattern or '*'
   ---@type table<string, GlueContext>
   local results = {}

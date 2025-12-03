@@ -96,6 +96,114 @@ describe('glue registration', function()
   end)
 end)
 
+describe('clear listeners', function()
+  before_each(reset_glue)
+
+  it('should clear specific listener', function()
+    local listener = glue.register('listener')
+    local emitter = glue.register('emitter')
+
+    local called = false
+    listener.listen('test.event', function()
+      called = true
+    end)
+
+    -- Listener works
+    emitter.emit('test.event', {})
+    assert.is_true(called)
+
+    -- Clear and verify it no longer fires
+    called = false
+    listener.clear('test.event')
+    emitter.emit('test.event', {})
+    assert.is_false(called)
+  end)
+
+  it('should clear listeners matching pattern', function()
+    local listener = glue.register('listener')
+    local emitter = glue.register('emitter')
+
+    local call_count = 0
+    listener.listen('test.event1', function()
+      call_count = call_count + 1
+    end)
+    listener.listen('test.event2', function()
+      call_count = call_count + 1
+    end)
+    listener.listen('other.event', function()
+      call_count = call_count + 1
+    end)
+
+    -- All listeners work
+    emitter.emit('test.event1', {})
+    emitter.emit('test.event2', {})
+    emitter.emit('other.event', {})
+    assert.equals(3, call_count)
+
+    -- Clear test.* listeners
+    call_count = 0
+    listener.clear('test.*')
+    emitter.emit('test.event1', {})
+    emitter.emit('test.event2', {})
+    emitter.emit('other.event', {})
+    assert.equals(1, call_count) -- only other.event fires
+  end)
+
+  it('should only clear own listeners', function()
+    local listener1 = glue.register('listener1')
+    local listener2 = glue.register('listener2')
+    local emitter = glue.register('emitter')
+
+    local l1_called = false
+    local l2_called = false
+
+    listener1.listen('test.event', function()
+      l1_called = true
+    end)
+    listener2.listen('test.event', function()
+      l2_called = true
+    end)
+
+    -- Both work
+    emitter.emit('test.event', {})
+    assert.is_true(l1_called)
+    assert.is_true(l2_called)
+
+    -- Clear only listener1
+    l1_called = false
+    l2_called = false
+    listener1.clear('test.event')
+    emitter.emit('test.event', {})
+    assert.is_false(l1_called)
+    assert.is_true(l2_called) -- listener2 still works
+  end)
+
+  it('should not error when clearing non-existent listeners', function()
+    local listener = glue.register('listener')
+
+    assert.has_no.errors(function()
+      listener.clear('nonexistent.*')
+    end)
+  end)
+
+  it('should clean up empty listener tables', function()
+    local listener = glue.register('listener')
+
+    listener.listen('test.event', function() end)
+
+    -- Verify listener exists
+    local listeners = glue.list_listeners('test.event')
+    assert.is_not_nil(listeners['test.event'])
+
+    -- Clear it
+    listener.clear('test.event')
+
+    -- Verify table is cleaned up
+    listeners = glue.list_listeners('test.event')
+    assert.is_nil(listeners['test.event'])
+  end)
+end)
+
 describe('ask/answer', function()
   before_each(reset_glue)
 

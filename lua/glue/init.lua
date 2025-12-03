@@ -37,10 +37,11 @@ local function matches_pattern(str, pattern)
 end
 
 ---@class GlueInstance
----@field answer fun(channel: string, handler: Answerer): nil Register an answer handler
+---@field answer fun(channel: string, handler: Answerer): nil Register an answerer
 ---@field ask fun(channel: string, args?: table): any|nil Query for an answer
 ---@field emit fun(channel: string, data: any): nil Emit an event
 ---@field listen fun(pattern: string, handler: Listener): nil Register a listener
+---@field clear fun(pattern: string): nil Clear listeners matching a pattern
 
 ---Register a context and return namespaced glue instance
 ---@param name string Unique name for this context
@@ -121,9 +122,29 @@ function M.register(name, context)
     ---Register a listener for channel events
     ---@param pattern string The channel pattern to listen on (supports glob patterns)
     ---@param handler Listener The handler function
+    ---@return nil
     listen = function(pattern, handler)
       registry.listeners[pattern] = registry.listeners[pattern] or {}
       registry.listeners[pattern][name] = handler
+    end,
+
+    ---Clear listeners for this context maptching a pattern
+    ---@param pattern string The channel pattern to clear listeners for
+    ---@return nil
+    ---@usage
+    ---```lua
+    ---glue.clear("file-browser.*")
+    ---```
+    clear = function(pattern)
+      for listener_pattern, listeners in pairs(registry.listeners) do
+        if matches_pattern(listener_pattern, pattern) then
+          listeners[name] = nil
+          -- Clean up empty listener tables
+          if next(listeners) == nil then
+            registry.listeners[listener_pattern] = nil
+          end
+        end
+      end
     end,
   }
 end

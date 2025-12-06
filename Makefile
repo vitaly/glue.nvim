@@ -39,10 +39,6 @@ test: ## Run all tests
 	busted
 .PHONY: test
 
-test-watch: ## Run tests in watch mode (requires entr or similar)
+watch: ## Run tests in watch mode (requires entr or similar)
 	find . -name "*.lua" | entr -c busted
-.PHONY: test-watch
-
-test-file: ## Run specific test file
-	busted $(FILE)
-.PHONY: test-file
+.PHONY: watch

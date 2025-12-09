@@ -57,6 +57,14 @@ function M.register(name, context)
     ---@param channel string
     ---@param handler GlueAnswerer
     answer = function(channel, handler)
+      if 'string' ~= type(channel) then
+        error(
+          ('answer(channel, handler): channel must be a string. received %s (a %s) instead'):format(
+            vim.inspect(channel),
+            type(channel)
+          )
+        )
+      end
       registry.answerers[channel] = registry.answerers[channel] or {}
       registry.answerers[channel][name] = handler
     end,
@@ -86,7 +94,10 @@ function M.register(name, context)
             local meta = { from = name, channel = channel }
             local ok, err = pcall(listener, channel, data, meta)
             if not ok then
-              vim.notify(('[glue] Listener error in %s on %s: %s'):format(context_name, channel, err), vim.log.levels.ERROR)
+              vim.notify(
+                ('[glue] Listener error in %s on %s: %s'):format(context_name, channel, err),
+                vim.log.levels.ERROR
+              )
             end
           end
         end
@@ -96,6 +107,14 @@ function M.register(name, context)
     ---@param pattern string
     ---@param handler GlueListener
     listen = function(pattern, handler)
+      if 'string' ~= type(pattern) then
+        error(
+          ('listen(pattern, handler): pattenr must be a string. received %s (a %s) instead'):format(
+            vim.inspect(pattern),
+            type(pattern)
+          )
+        )
+      end
       registry.listeners[pattern] = registry.listeners[pattern] or {}
       registry.listeners[pattern][name] = handler
     end,

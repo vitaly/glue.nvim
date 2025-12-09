@@ -31,22 +31,21 @@ describe('register', function()
   it('stores context metadata', function()
     glue.register('test-plugin', {
       version = 'v1.0',
-      answers = { 'test.question' },
-      emits = { 'test.event' },
-      listens = { 'other.*' },
+      handles = { 'test.question', 'test.*' },
+      casts = { 'test.event' },
     })
 
     local ctx = glue.list_contexts('test-plugin')['test-plugin']
     assert.equals('v1.0', ctx.version)
-    assert.same({ 'test.question' }, ctx.answers)
+    assert.same({ 'test.question', 'test.*' }, ctx.handles)
+    assert.same({ 'test.event' }, ctx.casts)
   end)
 
   it('works without metadata', function()
     local g = glue.register('simple')
-    assert.is_function(g.answer)
-    assert.is_function(g.ask)
-    assert.is_function(g.emit)
-    assert.is_function(g.listen)
+    assert.is_function(g.handle)
+    assert.is_function(g.call)
+    assert.is_function(g.cast)
     assert.is_function(g.clear)
   end)
 
@@ -57,101 +56,153 @@ describe('register', function()
   end)
 end)
 
-describe('ask/answer', function()
+describe('call/handle', function()
   before_each(reset)
 
-  it('calls answerer and returns result', function()
-    local answerer = glue.register('answerer')
-    local asker = glue.register('asker')
+  it('calls handler with channel, args and meta', function()
+    local handler_glue = glue.register('handler')
+    local caller = glue.register('caller')
 
-    answerer.answer('q', function(args)
-      return { got = args.x }
+    handler_glue.handle('q', function(channel, args, meta)
+      return { channel = channel, got = args.x, from = meta.from }
     end)
 
-    local result = asker.ask('q', { x = 42 })
+    local result = caller.call('q', { x = 42 })
+    assert.equals('q', result.channel)
     assert.equals(42, result.got)
+    assert.equals('handler', result.from)
   end)
 
-  it('returns nil when no answerer', function()
-    local g = glue.register('asker')
-    assert.is_nil(g.ask('missing'))
+  it('returns nil when no handler', function()
+    local g = glue.register('caller')
+    assert.is_nil(g.call('missing'))
   end)
 
-  it('requires exact channel match', function()
-    local answerer = glue.register('answerer')
-    local asker = glue.register('asker')
+  it('matches channel against handler patterns', function()
+    local handler_glue = glue.register('handler')
+    local caller = glue.register('caller')
 
-    answerer.answer('test.specific', function()
-      return true
+    handler_glue.handle('test.*', function(channel, args, meta)
+      return channel
     end)
 
-    assert.is_true(asker.ask('test.specific'))
-    assert.is_nil(asker.ask('test.*'))
+    assert.equals('test.specific', caller.call('test.specific'))
+    assert.equals('test.foo', caller.call('test.foo'))
+    assert.is_nil(caller.call('other'))
   end)
 
-  it('filters by from pattern', function()
-    local a1 = glue.register('conform.nvim')
-    local a2 = glue.register('lsp-format')
-    local asker = glue.register('asker')
+  it('filters by prefer pattern', function()
+    local h1 = glue.register('conform.nvim')
+    local h2 = glue.register('lsp-format')
+    local caller = glue.register('caller')
 
-    a1.answer('format', function()
+    h1.handle('format', function()
       return 'conform'
     end)
-    a2.answer('format', function()
+    h2.handle('format', function()
       return 'lsp'
     end)
 
-    assert.equals('conform', asker.ask('format', { from = 'conform.*' }))
+    assert.equals('conform', caller.call('format', { prefer = 'conform.*' }))
+  end)
+
+  it('tries prefer patterns in order', function()
+    local h1 = glue.register('handler1')
+    local h2 = glue.register('handler2')
+    local caller = glue.register('caller')
+
+    h1.handle('test', function()
+      return { from = 'h1' }
+    end)
+    h2.handle('test', function()
+      return { from = 'h2' }
+    end)
+
+    -- Try h1 first, then h2
+    local result = caller.call('test', { prefer = { 'handler1', 'handler2' } })
+    assert.equals('h1', result.from)
+
+    -- Try nonexistent first, then h2
+    result = caller.call('test', { prefer = { 'nonexistent', 'handler2' } })
+    assert.equals('h2', result.from)
+  end)
+
+  it('supports wildcard in prefer list', function()
+    local h1 = glue.register('handler1')
+    local caller = glue.register('caller')
+
+    h1.handle('test', function()
+      return { found = true }
+    end)
+
+    -- Try specific first, fall back to wildcard
+    local result = caller.call('test', { prefer = { 'nonexistent', '*' } })
+    assert.is_not_nil(result)
+    assert.is_true(result.found)
+  end)
+
+  it('remains backwards compatible with string prefer', function()
+    local h1 = glue.register('handler1')
+    local caller = glue.register('caller')
+
+    h1.handle('test', function()
+      return { found = true }
+    end)
+
+    -- String still works
+    local result = caller.call('test', { prefer = 'handler1' })
+    assert.is_not_nil(result)
+    assert.is_true(result.found)
   end)
 
   it('propagates errors', function()
-    local answerer = glue.register('answerer')
-    local asker = glue.register('asker')
+    local handler_glue = glue.register('handler')
+    local caller = glue.register('caller')
 
-    answerer.answer('fail', function()
+    handler_glue.handle('fail', function()
       error('boom')
     end)
 
     assert.has_error(function()
-      asker.ask('fail')
+      caller.call('fail')
     end)
   end)
 end)
 
-describe('emit/listen', function()
+describe('cast/handle', function()
   before_each(reset)
 
-  it('calls matching listeners with data and meta', function()
-    local emitter = glue.register('emitter')
-    local listener = glue.register('listener')
+  it('calls matching handlers with channel, data and meta', function()
+    local caster = glue.register('caster')
+    local handler_glue = glue.register('handler')
 
     local received
-    listener.listen('test.event', function(channel, data, meta)
+    handler_glue.handle('test.event', function(channel, data, meta)
       received = { channel = channel, data = data, meta = meta }
     end)
 
-    emitter.emit('test.event', { x = 1 })
+    caster.cast('test.event', { x = 1 })
 
     assert.equals('test.event', received.channel)
     assert.equals(1, received.data.x)
-    assert.equals('emitter', received.meta.from)
+    assert.equals('caster', received.meta.from)
   end)
 
   it('matches glob patterns', function()
-    local emitter = glue.register('emitter')
-    local listener = glue.register('listener')
+    local caster = glue.register('caster')
+    local handler_glue = glue.register('handler')
 
     local calls = {}
-    listener.listen('test.*', function(ch)
+    handler_glue.handle('test.*', function(ch)
       table.insert(calls, ch)
     end)
-    listener.listen('*tree*', function(ch)
+    handler_glue.handle('*tree*', function(ch)
       table.insert(calls, ch)
     end)
 
-    emitter.emit('test.foo', {})
-    emitter.emit('neo-tree.toggle', {})
-    emitter.emit('other', {})
+    caster.cast('test.foo', {})
+    caster.cast('neo-tree.toggle', {})
+    caster.cast('other', {})
 
     assert.equals(2, #calls)
     assert.is_true(vim.tbl_contains(calls, 'test.foo'))
@@ -159,121 +210,142 @@ describe('emit/listen', function()
   end)
 
   it('matches ? wildcard', function()
-    local emitter = glue.register('emitter')
-    local listener = glue.register('listener')
+    local caster = glue.register('caster')
+    local handler_glue = glue.register('handler')
 
     local called = false
-    listener.listen('test.?', function()
+    handler_glue.handle('test.?', function()
       called = true
     end)
 
-    emitter.emit('test.x', {})
+    caster.cast('test.x', {})
     assert.is_true(called)
 
     called = false
-    emitter.emit('test.xx', {})
+    caster.cast('test.xx', {})
     assert.is_false(called)
   end)
 
   it('escapes dots in patterns', function()
-    local emitter = glue.register('emitter')
-    local listener = glue.register('listener')
+    local caster = glue.register('caster')
+    local handler_glue = glue.register('handler')
 
     local called = false
-    listener.listen('a.b', function()
+    handler_glue.handle('a.b', function()
       called = true
     end)
 
-    emitter.emit('aXb', {})
+    caster.cast('aXb', {})
     assert.is_false(called)
 
-    emitter.emit('a.b', {})
+    caster.cast('a.b', {})
     assert.is_true(called)
   end)
 
-  it('catches listener errors without crashing', function()
-    local emitter = glue.register('emitter')
-    glue.register('bad').listen('test', function()
+  it('catches handler errors without crashing', function()
+    local caster = glue.register('caster')
+    glue.register('bad').handle('test', function()
       error('boom')
     end)
 
     local good_called = false
-    glue.register('good').listen('test', function()
+    glue.register('good').handle('test', function()
       good_called = true
     end)
 
     assert.has_no.errors(function()
-      emitter.emit('test', {})
+      caster.cast('test', {})
     end)
     assert.is_true(good_called)
     assert.is_true(#_G.vim._notifications > 0)
+  end)
+
+  it('returns count of handlers called', function()
+    local caster = glue.register('caster')
+    glue.register('h1').handle('test', function() end)
+    glue.register('h2').handle('test', function() end)
+    glue.register('h3').handle('other', function() end)
+
+    local count = caster.cast('test', {})
+    assert.equals(2, count)
+  end)
+
+  it('count does not include handlers that errored', function()
+    local caster = glue.register('caster')
+    glue.register('bad').handle('test', function()
+      error('boom')
+    end)
+    glue.register('good').handle('test', function() end)
+
+    local count = caster.cast('test', {})
+    assert.equals(1, count)
   end)
 end)
 
 describe('clear', function()
   before_each(reset)
 
-  it('removes listener', function()
-    local listener = glue.register('listener')
-    local emitter = glue.register('emitter')
+  it('removes handler', function()
+    local handler_glue = glue.register('handler')
+    local caster = glue.register('caster')
 
     local called = false
-    listener.listen('test', function()
+    handler_glue.handle('test', function()
       called = true
     end)
 
-    listener.clear('test')
-    emitter.emit('test', {})
+    handler_glue.clear('test')
+    caster.cast('test', {})
     assert.is_false(called)
   end)
 
   it('clears by pattern', function()
-    local listener = glue.register('listener')
-    local emitter = glue.register('emitter')
+    local handler_glue = glue.register('handler')
+    local caster = glue.register('caster')
 
     local count = 0
-    listener.listen('test.a', function()
+    handler_glue.handle('test.a', function()
       count = count + 1
     end)
-    listener.listen('test.b', function()
+    handler_glue.handle('test.b', function()
       count = count + 1
     end)
-    listener.listen('other', function()
+    handler_glue.handle('other', function()
       count = count + 1
     end)
 
-    listener.clear('test.*')
-    emitter.emit('test.a', {})
-    emitter.emit('test.b', {})
-    emitter.emit('other', {})
+    handler_glue.clear('test.*')
+    caster.cast('test.a', {})
+    caster.cast('test.b', {})
+    caster.cast('other', {})
     assert.equals(1, count)
   end)
 
-  it('only clears own listeners', function()
-    local l1 = glue.register('l1')
-    local l2 = glue.register('l2')
-    local emitter = glue.register('emitter')
+  it('only clears own handlers', function()
+    local h1 = glue.register('h1')
+    local h2 = glue.register('h2')
+    local caster = glue.register('caster')
 
-    local l1_called, l2_called = false, false
-    l1.listen('test', function()
-      l1_called = true
+    local h1_called, h2_called = false, false
+    h1.handle('test', function()
+      h1_called = true
     end)
-    l2.listen('test', function()
-      l2_called = true
+    h2.handle('test', function()
+      h2_called = true
     end)
 
-    l1.clear('test')
-    emitter.emit('test', {})
-    assert.is_false(l1_called)
-    assert.is_true(l2_called)
+    h1.clear('test')
+    caster.cast('test', {})
+    assert.is_false(h1_called)
+    assert.is_true(h2_called)
   end)
 
   it('cleans up empty tables', function()
-    local listener = glue.register('listener')
-    listener.listen('test', function() end)
+    local handler_glue = glue.register('handler')
+    handler_glue.handle('test', function() end)
 
-    listener.clear('test')
-    assert.is_nil(glue.list_listeners('test')['test'])
+    handler_glue.clear('test')
+    assert.is_nil(glue.list_handlers('test')['test'])
   end)
 end)
 
@@ -291,33 +363,24 @@ describe('introspection', function()
     assert.is_nil(ctx['other'])
   end)
 
-  it('list_answerers filters by channel and name', function()
-    glue.register('p1').answer('fmt.a', function() end)
-    glue.register('p2').answer('fmt.b', function() end)
-    glue.register('p2').answer('other', function() end)
+  it('list_handlers filters by channel and name', function()
+    glue.register('p1').handle('fmt.a', function() end)
+    glue.register('p2').handle('fmt.b', function() end)
+    glue.register('p2').handle('other', function() end)
 
-    local ans = glue.list_answerers('fmt.*')
-    assert.is_not_nil(ans['fmt.a'])
-    assert.is_not_nil(ans['fmt.b'])
-    assert.is_nil(ans['other'])
+    local handlers = glue.list_handlers('fmt.*')
+    assert.is_not_nil(handlers['fmt.a'])
+    assert.is_not_nil(handlers['fmt.b'])
+    assert.is_nil(handlers['other'])
 
-    ans = glue.list_answerers('*', 'p1')
-    assert.equals(1, #ans['fmt.a'])
-  end)
-
-  it('list_listeners filters by pattern', function()
-    glue.register('p1').listen('fmt.*', function() end)
-    glue.register('p2').listen('file.*', function() end)
-
-    local lst = glue.list_listeners('fmt.*')
-    assert.is_not_nil(lst['fmt.*'])
-    assert.is_nil(lst['file.*'])
+    handlers = glue.list_handlers('*', 'p1')
+    assert.equals(1, #handlers['fmt.a'])
   end)
 
   it('list_channels returns all channels', function()
     local p = glue.register('p')
-    p.answer('ch1', function() end)
-    p.listen('ch2', function() end)
+    p.handle('ch1', function() end)
+    p.handle('ch2', function() end)
 
     local channels = glue.list_channels()
     assert.is_true(vim.tbl_contains(channels, 'ch1'))

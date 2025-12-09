@@ -9,10 +9,8 @@ vim.api.nvim_create_user_command('Glue', function(opts)
     local filter1 = args[3] or '*'
     local filter2 = args[4] or '*'
 
-    if what == 'answerers' then
-      print(vim.inspect(glue.list_answerers(filter1, filter2)))
-    elseif what == 'listeners' then
-      print(vim.inspect(glue.list_listeners(filter1, filter2)))
+    if what == 'handlers' then
+      print(vim.inspect(glue.list_handlers(filter1, filter2)))
     elseif what == 'channels' then
       print(vim.inspect(glue.list_channels(filter1)))
     elseif what == 'contexts' then
@@ -22,14 +20,11 @@ vim.api.nvim_create_user_command('Glue', function(opts)
     end
   elseif verb == 'inspect' then
     local channel = args[2] or '*'
-    local answerers = glue.list_answerers(channel)
-    local listeners = glue.list_listeners(channel)
+    local handlers = glue.list_handlers(channel)
 
     print('=== Channel: ' .. channel .. ' ===')
-    print('\nAnswerers:')
-    print(vim.inspect(answerers))
-    print('\nListeners:')
-    print(vim.inspect(listeners))
+    print('\nHandlers:')
+    print(vim.inspect(handlers))
   else
     vim.notify('[glue] Unknown command: ' .. verb, vim.log.levels.ERROR)
   end
@@ -42,7 +37,7 @@ end, {
       return { 'list', 'inspect' }
     elseif #args == 2 or (#args == 3 and not cmdline:match('%s$')) then
       if args[2] == 'list' then
-        return { 'channels', 'contexts', 'answerers', 'listeners' }
+        return { 'channels', 'contexts', 'handlers' }
       end
     end
     return {}

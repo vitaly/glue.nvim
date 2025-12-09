@@ -13,11 +13,13 @@ Plugins register what they can do and what they need. Glue handles the routing.
 ```lua
 -- formatter plugin
 local glue = require("glue").register("conform")
-glue.answer("formatting.state", function() return { enabled = true } end)
+glue.handle("formatting.state", function(channel, args, meta)
+  return { enabled = true }
+end)
 
 -- statusline plugin (doesn't need to know about conform)
 local glue = require("glue").register("statusline")
-local state = glue.ask("formatting.state")
+local state = glue.call("formatting.state")
 ```
 
 ## Installation
@@ -38,63 +40,76 @@ require("glue.commands")
 
 ## API
 
-### Ask/Answer
+### Call/Handle
 
-Request/response pattern. One plugin answers, others ask.
+Request/response pattern. One plugin handles, others call.
 
 ```lua
 local glue = require("glue").register("my-plugin")
 
--- answer questions
-glue.answer("my.channel", function(args)
+-- handle requests (can use patterns like * and ?)
+glue.handle("my.channel", function(channel, args, meta)
   return { some = "data" }
 end)
 
--- ask questions
-local result = glue.ask("some.channel", { arg = "value" })
+-- call handlers
+local result = glue.call("some.channel", { arg = "value" })
 ```
 
-`ask` returns `nil` if nobody answers. Errors propagate to the caller.
+`call` returns `nil` if no handler matches. Errors propagate to the caller.
 
-### Emit/Listen
+### Cast/Handle
 
-Fire-and-forget events. One emits, many can listen.
+Fire-and-forget events. One casts, many can handle.
 
 ```lua
--- emit
-glue.emit("file-browser.opened", { path = "/foo" })
+-- cast events
+local count = glue.cast("file-browser.opened", { path = "/foo" })
+print(count .. " handlers called")
 
--- listen (pattern matching with * and ?)
-glue.listen("file-browser.*", function(channel, data, meta)
+-- handle events (pattern matching with * and ?)
+glue.handle("file-browser.*", function(channel, data, meta)
   print(meta.from .. " sent " .. channel)
 end)
 ```
 
-Listener errors are caught and logged, they won't crash the emitter.
+Handler errors are caught and logged. `cast` returns the count of successfully called handlers.
 
 ### Clear
 
-Remove your own listeners:
+Remove your own handlers:
 
 ```lua
 glue.clear("file-browser.*")
 ```
 
-### Filter by Source
+### Prefer Specific Handlers
+
+Filter which handlers to call by context name pattern:
 
 ```lua
--- only ask conform, not other formatters
-glue.ask("formatting.state", { from = "conform*" })
+-- prefer conform, fall back to any
+glue.call("formatting.state", { prefer = "conform*" })
+
+-- try handlers in order: telescope first, then lsp, then anyone
+glue.call("lsp.actions.definition", {
+  prefer = { "telescope.*", "lsp.*", "*" }
+})
+
+-- only specific handlers, no fallback
+glue.call("lsp.actions.definition", {
+  prefer = { "telescope.*", "lsp.*" }
+})
 ```
 
 ## Pattern Matching
 
-Channels support `*` (any chars) and `?` (single char):
+Channels and context names support `*` (any chars) and `?` (single char):
 
 ```lua
-glue.listen("formatting.*", handler)  -- formatting.state, formatting.changed
-glue.listen("*tree*", handler)        -- neo-tree.toggle, nvim-tree.open
-glue.listen("test.?", handler)        -- test.a, test.b (not test.ab)
+glue.handle("formatting.*", handler)  -- formatting.state, formatting.changed
+glue.handle("*tree*", handler)        -- neo-tree.toggle, nvim-tree.open
+glue.handle("test.?", handler)        -- test.a, test.b (not test.ab)
 ```
 
 ## Introspection
@@ -102,16 +117,14 @@ glue.listen("test.?", handler)        -- test.a, test.b (not test.ab)
 ```vim
 :Glue list contexts
 :Glue list channels
-:Glue list answerers formatting.*
-:Glue list listeners file-browser.*
+:Glue list handlers formatting.*
 :Glue inspect formatting.state
 ```
 
 ```lua
 local glue = require("glue")
 glue.list_contexts("*format*")
-glue.list_answerers("formatting.*")
-glue.list_listeners("file-browser.*")
+glue.list_handlers("formatting.*")
 glue.list_channels()
 ```
 
@@ -122,16 +135,16 @@ Bind once, swap implementations whenever:
 ```lua
 -- keymaps.lua
 vim.keymap.set("n", "<leader>e", function()
-  require("glue").register("keymaps").emit("file-browser.toggle")
+  require("glue").register("keymaps").cast("file-browser.toggle")
 end)
 
 -- neo-tree config
-require("glue").register("neo-tree").listen("file-browser.toggle", function()
+require("glue").register("neo-tree").handle("file-browser.toggle", function()
   require("neo-tree.command").execute({ toggle = true })
 end)
 
 -- or oil config (just swap this in)
-require("glue").register("oil").listen("file-browser.toggle", function()
+require("glue").register("oil").handle("file-browser.toggle", function()
   require("oil").toggle_float()
 end)
 ```

@@ -1,36 +1,30 @@
 ---@class GlueContext
 ---@field version? string
----@field answers? string[]
----@field emits? string[]
----@field listens? string[]
+---@field handles? string[]
+---@field casts? string[]
 
----@class GlueAskArgs
----@field from? string Filter answerers by context name pattern
+---@class GlueCallArgs
+---@field prefer? string|string[] Context pattern(s) to filter by, tried in order
 
 ---@class GlueMeta
 ---@field from string Context name that emitted the event
----@field channel string Channel the event was emitted on
 
----@alias GlueAnswerer fun(args: table): any
----@alias GlueListener fun(channel: string, data: any, meta: GlueMeta)
+---@alias Handler fun(channel: string, args: any, meta: GlueMeta): any
 
 ---@class GlueInstance
----@field answer fun(channel: string, handler: GlueAnswerer)
----@field ask fun(channel: string, args?: GlueAskArgs): any?
----@field emit fun(channel: string, data: any)
----@field listen fun(pattern: string, handler: GlueListener)
+---@field handle fun(channel: string, handler: Handler)
+---@field call fun(channel: string, args?: GlueCallArgs): any?
+---@field cast fun(channel: string, data: any): number
 ---@field clear fun(pattern: string)
 
 ---@class GlueRegistry
 ---@field contexts table<string, GlueContext>
----@field answerers table<string, table<string, GlueAnswerer>>
----@field listeners table<string, table<string, GlueListener>>
+---@field handlers table<string, table<string, Handler>>
 
 ---@type GlueRegistry
 local registry = {
   contexts = {},
-  answerers = {},
-  listeners = {},
+  handlers = {},
 }
 
 ---@param str string
@@ -55,77 +49,82 @@ function M.register(name, context)
 
   return {
     ---@param channel string
-    ---@param handler GlueAnswerer
-    answer = function(channel, handler)
+    ---@param handler Handler
+    handle = function(channel, handler)
       if 'string' ~= type(channel) then
         error(
-          ('answer(channel, handler): channel must be a string. received %s (a %s) instead'):format(
+          ('handle(channel, handler): channel must be a string. received %s (a %s) instead'):format(
             vim.inspect(channel),
             type(channel)
           )
         )
       end
-      registry.answerers[channel] = registry.answerers[channel] or {}
-      registry.answerers[channel][name] = handler
+      registry.handlers[channel] = registry.handlers[channel] or {}
+      registry.handlers[channel][name] = handler
     end,
 
     ---@param channel string
-    ---@param args? GlueAskArgs
+    ---@param args? GlueCallArgs
     ---@return any?
-    ask = function(channel, args)
+    call = function(channel, args)
       args = args or {}
-      local answerers = registry.answerers[channel]
-      if answerers then
-        for context_name, answerer in pairs(answerers) do
-          if not args.from or matches_pattern(context_name, args.from) then
-            return answerer(args)
+
+      -- Normalize prefer to always be a list
+      local prefer_patterns = args.prefer
+      if type(prefer_patterns) == "string" then
+        prefer_patterns = { prefer_patterns }
+      elseif not prefer_patterns then
+        prefer_patterns = { "*" }  -- default: match any
+      end
+
+      -- Try each pattern in order
+      for _, prefer_pattern in ipairs(prefer_patterns) do
+        for pattern, handlers in pairs(registry.handlers) do
+          if matches_pattern(channel, pattern) then
+            for context_name, handler in pairs(handlers) do
+              if matches_pattern(context_name, prefer_pattern) then
+                local meta = { from = context_name }
+                return handler(channel, args, meta)
+              end
+            end
           end
         end
       end
+
       return nil
     end,
 
     ---@param channel string
     ---@param data any
-    emit = function(channel, data)
-      for pattern, listeners in pairs(registry.listeners) do
+    ---@return number
+    cast = function(channel, data)
+      local count = 0
+      for pattern, handlers in pairs(registry.handlers) do
         if matches_pattern(channel, pattern) then
-          for context_name, listener in pairs(listeners) do
-            local meta = { from = name, channel = channel }
-            local ok, err = pcall(listener, channel, data, meta)
+          for context_name, handler in pairs(handlers) do
+            local meta = { from = name }
+            local ok, err = pcall(handler, channel, data, meta)
             if not ok then
               vim.notify(
-                ('[glue] Listener error in %s on %s: %s'):format(context_name, channel, err),
+                ('[glue] Handler error in %s on %s: %s'):format(context_name, channel, err),
                 vim.log.levels.ERROR
               )
+            else
+              count = count + 1
             end
           end
         end
       end
-    end,
-
-    ---@param pattern string
-    ---@param handler GlueListener
-    listen = function(pattern, handler)
-      if 'string' ~= type(pattern) then
-        error(
-          ('listen(pattern, handler): pattenr must be a string. received %s (a %s) instead'):format(
-            vim.inspect(pattern),
-            type(pattern)
-          )
-        )
-      end
-      registry.listeners[pattern] = registry.listeners[pattern] or {}
-      registry.listeners[pattern][name] = handler
+      return count
     end,
 
     ---@param pattern string
     clear = function(pattern)
-      for listener_pattern, listeners in pairs(registry.listeners) do
-        if matches_pattern(listener_pattern, pattern) then
-          listeners[name] = nil
-          if next(listeners) == nil then
-            registry.listeners[listener_pattern] = nil
+      for handler_pattern, handlers in pairs(registry.handlers) do
+        if matches_pattern(handler_pattern, pattern) then
+          handlers[name] = nil
+          if next(handlers) == nil then
+            registry.handlers[handler_pattern] = nil
           end
         end
       end
@@ -136,36 +135,16 @@ end
 ---@param channel_pattern? string
 ---@param name_pattern? string
 ---@return table<string, string[]>
-function M.list_answerers(channel_pattern, name_pattern)
+function M.list_handlers(channel_pattern, name_pattern)
   channel_pattern = channel_pattern or '*'
   name_pattern = name_pattern or '*'
   local results = {}
-  for channel, answerers in pairs(registry.answerers) do
+  for channel, handlers in pairs(registry.handlers) do
     if matches_pattern(channel, channel_pattern) then
-      for context_name in pairs(answerers) do
+      for context_name in pairs(handlers) do
         if matches_pattern(context_name, name_pattern) then
           results[channel] = results[channel] or {}
           table.insert(results[channel], context_name)
-        end
-      end
-    end
-  end
-  return results
-end
-
----@param pattern_filter? string
----@param name_pattern? string
----@return table<string, string[]>
-function M.list_listeners(pattern_filter, name_pattern)
-  pattern_filter = pattern_filter or '*'
-  name_pattern = name_pattern or '*'
-  local results = {}
-  for pattern, listeners in pairs(registry.listeners) do
-    if matches_pattern(pattern, pattern_filter) then
-      for context_name in pairs(listeners) do
-        if matches_pattern(context_name, name_pattern) then
-          results[pattern] = results[pattern] or {}
-          table.insert(results[pattern], context_name)
         end
       end
     end
@@ -190,17 +169,10 @@ end
 ---@return string[]
 function M.list_channels(channel_pattern)
   channel_pattern = channel_pattern or '*'
-  local seen = {}
-  for channel in pairs(registry.answerers) do
-    seen[channel] = true
-  end
-  for pattern in pairs(registry.listeners) do
-    seen[pattern] = true
-  end
   local results = {}
-  for channel in pairs(seen) do
-    if matches_pattern(channel, channel_pattern) then
-      table.insert(results, channel)
+  for pattern in pairs(registry.handlers) do
+    if matches_pattern(pattern, channel_pattern) then
+      table.insert(results, pattern)
     end
   end
   table.sort(results)
@@ -210,8 +182,7 @@ end
 ---@private
 function M._reset()
   registry.contexts = {}
-  registry.answerers = {}
-  registry.listeners = {}
+  registry.handlers = {}
 end
 
 return M
